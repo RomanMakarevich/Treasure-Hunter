@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Pixi demo</title>
+</head>
+<script src="pixi/pixi.min.js"></script>
+<script src="keyboard.js"></script>
+<script src="hitTestRectangle.js"></script>
+<body>
+<script type="text/javascript">
+    let loader = PIXI.loader;
+    Sprite = PIXI.Sprite;
+    resources = PIXI.loader.resources;
+
+    let app = new PIXI.Application({
+        width: 512,
+        height: 512,
+        antialias: true,
+        transparent: false,
+        resolution: 1
+    });
+
+    document.body.appendChild(app.view);
+
+    loader
+        .add("img/treasureHunter.json")
+        .load(setup);
+
+    let texturess, dungeon, explorer, treasure, door, blobs, gameScene, gameOverScene, state, healthBar, message;
+
+    function setup() {
+        gameScene = new PIXI.Container;
+        app.stage.addChild(gameScene);
+
+        texturess = PIXI.loader.resources["img/treasureHunter.json"].textures;
+
+        dungeon = new Sprite(texturess["dungeon.png"]);
+        gameScene.addChild(dungeon);
+
+        explorer = new Sprite(texturess["explorer.png"]);
+        explorer.x = 68;
+        explorer.y = app.stage.height / 2 - explorer.height / 2;
+        gameScene.addChild(explorer);
+
+        treasure = new Sprite(texturess["treasure.png"]);
+        treasure.x = app.stage.width - treasure.width - 48;
+        treasure.y = app.stage.height / 2 - treasure.height / 2;
+        gameScene.addChild(treasure);
+
+        door = new Sprite(texturess["door.png"]);
+        door.x = 32;
+        gameScene.addChild(door);
+
+        let numberOfBlobs = 6,
+            spacing = 48,
+            xOffset = 150,
+            speed = 2,
+            direction = 1;
+
+        blobs = [];
+        for (let i = 0; i < numberOfBlobs; i++) {
+            let blob = new Sprite(texturess["blob.png"]);
+
+            let x = spacing * i + xOffset;
+            let y = randomInt(0, app.stage.height - blob.height);
+
+            blob.x = x;
+            blob.y = y;
+
+            blob.vy = speed * direction;
+
+            direction *= -1;
+
+            blobs.push(blob);
+
+            gameScene.addChild(blob);
+        }
+
+        healthBar = new PIXI.Container;
+        healthBar.position.set(app.stage.width - 170, 4);
+        gameScene.addChild(healthBar);
+
+        let innerBar = new PIXI.Graphics();
+        innerBar.beginFill(0x000000);
+        innerBar.drawRect(0, 0, 128, 8);
+        innerBar.endFill();
+        healthBar.addChild(innerBar);
+
+        let outerBar = new PIXI.Graphics();
+        outerBar.beginFill(0xFF3300);
+        outerBar.drawRect(0, 0, 128, 8);
+        outerBar.endFill();
+        healthBar.addChild(outerBar);
+
+        healthBar.outer = outerBar;
+
+        gameOverScene = new PIXI.Container;
+        app.stage.addChild(gameOverScene);
+        gameOverScene.visible = false;
+
+        let style = new PIXI.TextStyle({
+            fontFamily: "Futura",
+            fontSize: 64,
+            fill: "white"
+        });
+
+        message = new PIXI.Text("The End!", style);
+        message.x = 120;
+        message.y = app.stage.height / 2 - 32;
+        gameOverScene.addChild(message);
+
+        explorer.vx = 0;
+        explorer.vy = 0;
+
+        let left = keyboard(37),
+            up = keyboard(38),
+            right = keyboard(39),
+            down = keyboard(40);
+
+        left.press = () => {
+            explorer.vx = -2;
+            explorer.vy = 0;
+        }
+        left.release = () => {
+            if (!right.isDown && explorer.vy === 0) {
+                explorer.vx = 0;
+            }
+        }
+
+        right.press = () => {
+            explorer.vx = 2;
+            explorer.vy = 0;
+        }
+        right.release = () => {
+            if (!left.isDown && explorer.vy === 0) {
+                explorer.vx = 0;
+            }
+        }
+
+        up.press = () => {
+            explorer.vx = 0;
+            explorer.vy = -2;
+        }
+        up.release = () => {
+            if (!down.isDown && explorer.vx === 0) {
+                explorer.vy = 0;
+            }
+        }
+
+        down.press = () => {
+            explorer.vx = 0;
+            explorer.vy = 2;
+        }
+        down.release = () => {
+            if (!up.isDown && explorer.vx === 0) {
+                explorer.vy = 0;
+            }
+        }
+        state = play;
+        app.ticker.add(delta => gameLoop(delta));
+    }
+
+    function gameLoop(delta) {
+        state(delta);
+    }
+
+    function play(delta) {
+        explorer.x += explorer.vx;
+        explorer.y += explorer.vy;
+
+        contain(explorer, {x: 28, y: 10, width: 488, height: 480});
+
+        let explorerHit = false;
+
+        for (let i = 0; i < blobs.length; i++) {
+
+
+            blobs[i].y += blobs[i].vy;
+
+
+            let blobHitsWall = contain(blobs[i], {x: 28, y: 10, width: 488, height: 480});
+
+
+            if (blobHitsWall === "top" || blobHitsWall === "bottom") {
+                blobs[i].vy *= -1;
+            }
+
+            if (hitTestRectangle(explorer, blobs[i])) {
+                explorerHit = true;
+            }
+        }
+
+        if (explorerHit) {
+
+            explorer.alpha = 0.5;
+
+            healthBar.outer.width -= 1;
+
+        } else {
+            explorer.alpha = 1;
+        }
+
+        if (hitTestRectangle(explorer, treasure)) {
+            treasure.x = explorer.x + 8;
+            treasure.y = explorer.y + 8;
+        }
+
+        if (healthBar.outer.width < 0) {
+            state = end;
+            message.text = "You lost!";
+        }
+
+        if (hitTestRectangle(treasure, door)) {
+            state = end;
+            message.text = "You won!";
+        }
+    }
+
+    function end() {
+        gameScene.visible = false;
+        gameOverScene.visible = true;
+    }
+
+    function contain(sprite, container) {
+
+        let collision = undefined;
+
+        //Left
+        if (sprite.x < container.x) {
+            sprite.x = container.x;
+            collision = "left";
+        }
+
+        //Top
+        if (sprite.y < container.y) {
+            sprite.y = container.y;
+            collision = "top";
+        }
+
+        //Right
+        if (sprite.x + sprite.width > container.width) {
+            sprite.x = container.width - sprite.width;
+            collision = "right";
+        }
+
+        //Bottom
+        if (sprite.y + sprite.height > container.height) {
+            sprite.y = container.height - sprite.height;
+            collision = "bottom";
+        }
+
+        //Return the `collision` value
+        return collision;
+    }
+
+    function randomInt(min, max) {
+        return Math.floor(Math.random() * (max - min + 1)) + min;
+    }
+
+</script>
+
+</body>
+</html>
